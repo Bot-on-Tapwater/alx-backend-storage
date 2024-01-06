@@ -1,28 +1,21 @@
 #!/usr/bin/env python3
-"""Implement class Cache"""
-
+"""
+Cache class
+"""
 import redis
 import uuid
-from typing import Union
+from typing import Union, Optional, Callable
 
 
 class Cache:
-    """Class Cache"""
-
+    """class Cache"""
     def __init__(self):
-        """
-        Initializes an instance of the class.
-        """
+        """creates a connection with db and clears cache"""
         self._redis = redis.Redis()
         self._redis.flushdb()
 
-    def store(self, data: Union[str | bytes | int | float]) -> str:
-        """
-        A description of the entire function
-        its parameters, and its return types.
-        """
-        random_key = str(uuid.uuid4())
-
-        self._redis.set(random_key, data)
-
-        return random_key
+    def store(self, data: Union[str, bytes, int, float]) -> str:
+        """Generates key and stores data in db"""
+        key = str(uuid.uuid4())
+        self._redis.set(key, data)
+        return key
