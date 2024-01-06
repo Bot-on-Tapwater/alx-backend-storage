@@ -52,9 +52,12 @@ class Cache:
             Union[str, bytes, int]: The value associated with the key. If the value is not found or fn is not provided, the raw value is returned.
         """
         value = self.redis_client.get(key)
-        if value is not None and fn is not None:
+        if value is None:
+            return None
+        if fn:
             return fn(value)
-        return value
+        else:
+            return value
 
     def get_str(self, key: str) -> Union[str, None]:
         """
@@ -67,7 +70,7 @@ class Cache:
             Union[str, None]: The string value associated with the key in the cache,
             or None if the key is not found.
         """
-        return self.get(key, fn=lambda x: x.decode('utf-8') if x else None)
+        return self.get(key, fn=decode_utf8)
 
     def get_int(self, key: str) -> Union[int, None]:
         """
@@ -79,4 +82,4 @@ class Cache:
         Returns:
             Union[int, None]: The integer value associated with the key, or None if the key does not exist or the value cannot be converted to an integer.
         """
-        return self.get(key, fn=lambda x: int(x) if x else None)
+        return self.get(key, fn=int)
