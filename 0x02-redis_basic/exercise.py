@@ -1,85 +1,87 @@
 #!/usr/bin/env python3
-"""Implement class Cache"""
-
+"""
+Cache class
+"""
 import redis
 import uuid
-from typing import Union, Callable, Optional
+from typing import Union, Optional, Callable
+from functools import wraps
+
+
+def decode_utf8(data):
+    """Converts bytes too strings"""
+    return data.decode("utf-8")
+
+
+def count_calls(method: Callable) -> Callable:
+    """Decorator to count the number of calls to a method"""
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        key = method.__qualname__
+        self._redis.incr(key)
+        return method(self, *args, **kwargs)
+    return wrapper
+
+
+def call_history(method: Callable) -> Callable:
+    """Tracks method call history"""
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        key = method.__qualname__
+        input_key = f"{key}:inputs"
+        self._redis.rpush(input_key, str(args))
+        output = method(self, *args, **kwargs)
+        output_key = f"{key}:outputs"
+        self._redis.rpush(output_key, output)
+        return output
+    return wrapper
 
 
 class Cache:
-    """Class Cache"""
-
     def __init__(self):
-        """
-        Initializes a new instance of the class.
-
-        Parameters:
-            None
-
-        Returns:
-            None
-        """
+        """creates a connection with db and clears cache"""
         self._redis = redis.Redis()
         self._redis.flushdb()
 
+    @count_calls
+    @call_history
     def store(self, data: Union[str, bytes, int, float]) -> str:
-        """
-        Stores the given data in Redis and returns a random key.
+        """Generates key and stores data in db"""
+        key = str(uuid.uuid4())
+        self._redis.set(key, data)
+        return key
 
-        Args:
-            data (Union[str, bytes, int, float]): The data to be stored.
-            It can be a string, bytes, integer, or float.
-
-        Returns:
-            str: A randomly generated key that is used
-            to retrieve the stored data from Redis.
-        """
-        random_key = str(uuid.uuid4())
-
-        self._redis.set(random_key, data)
-
-        return random_key
-
-    def get(self, key: str, fn: Optional[Callable] = None) -> Union[str, bytes, int]:
-        """
-        Retrieves the value associated with the specified key from the Redis cache.
-
-        Parameters:
-            key (str): The key to retrieve the value for.
-            fn (Optional[Callable]): An optional function to apply to the retrieved value before returning it. Defaults to None.
-
-        Returns:
-            Union[str, bytes, int]: The value associated with the key. If the value is not found or fn is not provided, the raw value is returned.
-        """
-        value = self.redis_client.get(key)
-        if value is None:
+    def get(self, key: str, fn: Optional[Callable] = None) -> Union[str, bytes, int, float, None]:
+        """Retrieves data from db and calls function if provided"""
+        data = self._redis.get(key)
+        if data is None:
             return None
         if fn:
-            return fn(value)
+            return fn(data)
         else:
-            return value
+            return data
 
-    def get_str(self, key: str) -> Union[str, None]:
-        """
-        Retrieves a string value from the cache using the specified key.
-
-        Parameters:
-            key (str): The key used to retrieve the value from the cache.
-
-        Returns:
-            Union[str, None]: The string value associated with the key in the cache,
-            or None if the key is not found.
-        """
+    def get_str(self, key: str) -> Optional[str]:
+        """Retrieves data as a str from db"""
         return self.get(key, fn=decode_utf8)
 
-    def get_int(self, key: str) -> Union[int, None]:
-        """
-        Get the integer value associated with the given key.
-
-        Args:
-            key (str): The key to look up in the dictionary.
-
-        Returns:
-            Union[int, None]: The integer value associated with the key, or None if the key does not exist or the value cannot be converted to an integer.
-        """
+    def get_int(self, key: int) -> Optional[int]:
+        """Retrieves data from db as int"""
         return self.get(key, fn=int)
+
+    def replay(method: Callable):
+        """
+        Displays the call history of a Cache class' method.
+        """
+        if method is None or not hasattr(method, "__self__"):
+            return
+        redis_store = getattr(method.__self__, "_redis", None)
+        if not isinstance(redis_store, redis.Redis):
+            return
+        key = method.__qualname__
+        input_key = f"{key}:inputs"
+        output_key = f"{key}:outputs"
+        inputs = redis_store.lrange(input_key, 0, -1)
+        outputs = redis_store.lrange(output_key, 0, -1)
+        for input_args, output in zip(inputs, outputs):
+            print(f"{key}(*{input_args}) -> {output}")
